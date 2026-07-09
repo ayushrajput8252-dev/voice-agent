@@ -1,13 +1,14 @@
 'use client';
 
 // ============================================================
-// Message Bubble — Individual message display
+// Message Bubble — Individual message display with video support
 // ============================================================
 
-import { motion } from 'framer-motion';
+import { useState } from 'react';
+import { motion, AnimatePresence } from 'framer-motion';
 import { Message } from '@/types';
 import { ToolCallCard } from './tool-call-card';
-import { User, Sparkles, Shield, ShieldAlert } from 'lucide-react';
+import { User, Sparkles, Shield, ShieldAlert, Video, Loader2 } from 'lucide-react';
 
 interface MessageBubbleProps {
   message: Message;
@@ -16,6 +17,7 @@ interface MessageBubbleProps {
 export function MessageBubble({ message }: MessageBubbleProps) {
   const isUser = message.role === 'user';
   const isStreaming = message.isStreaming;
+  const [showVideo, setShowVideo] = useState(false);
 
   return (
     <motion.div
@@ -58,6 +60,53 @@ export function MessageBubble({ message }: MessageBubbleProps) {
             {message.toolCalls.map((tool) => (
               <ToolCallCard key={tool.id} toolCall={tool} />
             ))}
+          </div>
+        )}
+
+        {/* Avatar video badge / thumbnail */}
+        {!isUser && message.avatarStatus && message.avatarStatus !== 'idle' && (
+          <div className="message-avatar-section">
+            {message.avatarStatus === 'generating' && (
+              <div className="message-avatar-badge generating">
+                <Loader2 size={12} className="spin" />
+                <span>Generating avatar video...</span>
+              </div>
+            )}
+            {message.avatarStatus === 'ready' && message.avatarVideoUrl && (
+              <>
+                <button
+                  className="message-video-thumb"
+                  onClick={() => setShowVideo(!showVideo)}
+                >
+                  <Video size={14} />
+                  <span>{showVideo ? 'Hide Video' : 'Watch Avatar Video'}</span>
+                </button>
+                <AnimatePresence>
+                  {showVideo && (
+                    <motion.div
+                      className="message-video-embed"
+                      initial={{ height: 0, opacity: 0 }}
+                      animate={{ height: 'auto', opacity: 1 }}
+                      exit={{ height: 0, opacity: 0 }}
+                      transition={{ duration: 0.3 }}
+                    >
+                      <video
+                        src={message.avatarVideoUrl}
+                        controls
+                        autoPlay
+                        playsInline
+                        className="message-video"
+                      />
+                    </motion.div>
+                  )}
+                </AnimatePresence>
+              </>
+            )}
+            {message.avatarStatus === 'error' && (
+              <div className="message-avatar-badge error">
+                <span>Avatar generation failed</span>
+              </div>
+            )}
           </div>
         )}
 

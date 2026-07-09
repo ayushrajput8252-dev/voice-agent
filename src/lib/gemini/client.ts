@@ -121,7 +121,6 @@ export async function streamGeminiResponse(
       // Second call with tool results
       callbacks.onStateChange('reasoning', 'Formulating Response');
 
-      // @ts-expect-error: Follow-up contents type mismatch with SDK
       const followUpContents = [
         ...contents,
         { role: 'model', parts },
@@ -130,6 +129,7 @@ export async function streamGeminiResponse(
 
       const followUpResponse = await ai.models.generateContent({
         model,
+        // @ts-expect-error: Follow-up contents type mismatch with SDK
         contents: followUpContents,
         config: {
           systemInstruction: SYSTEM_PROMPT,

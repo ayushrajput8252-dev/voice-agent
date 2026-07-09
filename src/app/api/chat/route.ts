@@ -8,6 +8,7 @@ import { validateQuery } from '@/lib/validation/query-validator';
 import { streamGeminiResponse } from '@/lib/gemini/client';
 import { validateResponse, responseValidationToLayerResult } from '@/lib/safety/response-validator';
 import { ChatRequest, SSEEventType } from '@/types';
+import { createTalkVideo, waitForVideoCompletion } from '@/lib/did/did-client';
 
 function createSSEMessage(type: SSEEventType, data: unknown): string {
   return `data: ${JSON.stringify({ type, data, timestamp: Date.now() })}\n\n`;
@@ -208,6 +209,33 @@ export async function POST(request: NextRequest) {
           },
           responseValidation,
         });
+
+        // ============ Step 6: D-ID Avatar Generation (async) ============
+        const didApiKey = process.env.DID_API_KEY;
+        if (didApiKey && geminiResult.fullResponse) {
+          try {
+            send('state_change', { state: 'avatar_generation', label: 'Generating Avatar' });
+
+            const avatarResult = await createTalkVideo(geminiResult.fullResponse, didApiKey);
+
+            if (avatarResult.success && avatarResult.talkId) {
+              send('avatar_started', { talkId: avatarResult.talkId });
+
+              // Try to wait for completion within the stream (up to 30s)
+              const videoResult = await waitForVideoCompletion(avatarResult.talkId, didApiKey, 30000, 2000);
+
+              if (videoResult.success && videoResult.videoUrl) {
+                send('avatar_ready', { talkId: avatarResult.talkId, videoUrl: videoResult.videoUrl });
+              }
+              // If timed out within 30s, frontend will continue polling via /api/avatar
+            } else {
+              console.warn('[D-ID] Avatar creation failed:', avatarResult.error);
+            }
+          } catch (avatarError) {
+            console.error('[D-ID] Avatar generation error:', avatarError);
+            // Non-fatal: don't break the stream
+          }
+        }
       } catch (error) {
         const msg = error instanceof Error ? error.message : 'An unexpected error occurred';
         send('state_change', { state: 'error', label: 'Error' });

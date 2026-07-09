@@ -60,6 +60,8 @@ export interface MessageMetadata {
   tokensUsed?: number;
 }
 
+export type AvatarStatus = 'idle' | 'generating' | 'ready' | 'error';
+
 export interface Message {
   id: string;
   role: MessageRole;
@@ -68,6 +70,9 @@ export interface Message {
   toolCalls?: ToolCallInfo[];
   metadata?: MessageMetadata;
   isStreaming?: boolean;
+  avatarVideoUrl?: string;
+  avatarStatus?: AvatarStatus;
+  avatarTalkId?: string;
 }
 
 // ---- Safety ----
@@ -180,7 +185,9 @@ export type SSEEventType =
   | 'metadata'
   | 'clarification'
   | 'error'
-  | 'complete';
+  | 'complete'
+  | 'avatar_started'
+  | 'avatar_ready';
 
 export interface SSEEvent {
   type: SSEEventType;

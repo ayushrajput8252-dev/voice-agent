@@ -1,11 +1,11 @@
 'use client';
 
 // ============================================================
-// Main Application Page — Voice AI Assistant
+// Main Application Page — Voice AI Assistant with D-ID Avatar
 // ============================================================
 
 import { useState, useCallback, useEffect, useRef } from 'react';
-import { AppState, Message, SafetyInfo } from '@/types';
+import { AppState, Message, SafetyInfo, AvatarStatus } from '@/types';
 import { usePipelineState } from '@/hooks/use-pipeline-state';
 import { useSpeechRecognition } from '@/hooks/use-speech-recognition';
 import { useSpeechSynthesis } from '@/hooks/use-speech-synthesis';
@@ -33,6 +33,12 @@ export default function Home() {
     safety?: SafetyInfo;
   }>({});
 
+  // ---- Avatar State ----
+  const [avatarVideoUrl, setAvatarVideoUrl] = useState<string | undefined>();
+  const [avatarStatus, setAvatarStatus] = useState<AvatarStatus>('idle');
+  const avatarPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const currentAvatarMsgIdRef = useRef<string | null>(null);
+
   // ---- Hooks ----
   const pipeline = usePipelineState();
   const audioAnalyzer = useAudioAnalyzer();
@@ -44,7 +50,10 @@ export default function Home() {
     onStart: () => pipeline.transitionTo(AppState.Speaking),
     onEnd: () => {
       pipeline.transitionTo(AppState.Complete);
-      setTimeout(() => pipeline.transitionTo(AppState.Idle), 2000);
+      // Don't auto-reset to idle if avatar is still generating
+      if (avatarStatus !== 'generating') {
+        setTimeout(() => pipeline.transitionTo(AppState.Idle), 2000);
+      }
     },
   });
 
@@ -70,6 +79,83 @@ export default function Home() {
       setTimeout(() => pipeline.transitionTo(AppState.Idle), 3000);
     },
   });
+
+  // ---- Avatar Polling ----
+  const stopAvatarPolling = useCallback(() => {
+    if (avatarPollRef.current) {
+      clearInterval(avatarPollRef.current);
+      avatarPollRef.current = null;
+    }
+  }, []);
+
+  const startAvatarPolling = useCallback(
+    (talkId: string, msgId: string) => {
+      stopAvatarPolling();
+      currentAvatarMsgIdRef.current = msgId;
+
+      let pollCount = 0;
+      const maxPolls = 45; // 45 * 2s = 90s max
+
+      avatarPollRef.current = setInterval(async () => {
+        pollCount++;
+
+        if (pollCount > maxPolls) {
+          stopAvatarPolling();
+          setAvatarStatus('error');
+          setMessages((prev) =>
+            prev.map((m) =>
+              m.id === msgId ? { ...m, avatarStatus: 'error' } : m,
+            ),
+          );
+          return;
+        }
+
+        try {
+          const response = await fetch(`/api/avatar?talkId=${encodeURIComponent(talkId)}`);
+          const data = await response.json();
+
+          if (data.status === 'done' && data.videoUrl) {
+            stopAvatarPolling();
+            setAvatarVideoUrl(data.videoUrl);
+            setAvatarStatus('ready');
+            pipeline.transitionTo(AppState.AvatarGeneration, 'Avatar Ready');
+            setMessages((prev) =>
+              prev.map((m) =>
+                m.id === msgId
+                  ? { ...m, avatarVideoUrl: data.videoUrl, avatarStatus: 'ready' }
+                  : m,
+              ),
+            );
+          } else if (data.status === 'error') {
+            stopAvatarPolling();
+            setAvatarStatus('error');
+            setMessages((prev) =>
+              prev.map((m) =>
+                m.id === msgId ? { ...m, avatarStatus: 'error' } : m,
+              ),
+            );
+          }
+          // else: still processing, keep polling
+        } catch (error) {
+          console.error('Avatar poll error:', error);
+          // Don't stop polling on transient network errors
+        }
+      }, 2000);
+    },
+    [stopAvatarPolling, pipeline],
+  );
+
+  // Cleanup polling on unmount
+  useEffect(() => {
+    return () => stopAvatarPolling();
+  }, [stopAvatarPolling]);
+
+  // ---- Handle avatar video end ----
+  const handleVideoEnd = useCallback(() => {
+    setAvatarVideoUrl(undefined);
+    setAvatarStatus('idle');
+    pipeline.transitionTo(AppState.Idle);
+  }, [pipeline]);
 
   // ---- Process SSE Stream ----
   const processStream = useCallback(
@@ -164,7 +250,6 @@ export default function Home() {
                   break;
                 }
                 case 'clarification': {
-                  // Clarification is handled via content
                   break;
                 }
                 case 'error': {
@@ -194,6 +279,34 @@ export default function Home() {
                   }
                   break;
                 }
+
+                // ---- D-ID Avatar Events ----
+                case 'avatar_started': {
+                  setAvatarStatus('generating');
+                  setMessages((prev) =>
+                    prev.map((m) =>
+                      m.id === assistantMsgId
+                        ? { ...m, avatarStatus: 'generating', avatarTalkId: data.talkId }
+                        : m,
+                    ),
+                  );
+                  // Start polling in case the stream closes before completion
+                  startAvatarPolling(data.talkId, assistantMsgId);
+                  break;
+                }
+                case 'avatar_ready': {
+                  stopAvatarPolling();
+                  setAvatarVideoUrl(data.videoUrl);
+                  setAvatarStatus('ready');
+                  setMessages((prev) =>
+                    prev.map((m) =>
+                      m.id === assistantMsgId
+                        ? { ...m, avatarVideoUrl: data.videoUrl, avatarStatus: 'ready' }
+                        : m,
+                    ),
+                  );
+                  break;
+                }
               }
             } catch {
               // Skip malformed JSON lines
@@ -205,7 +318,7 @@ export default function Home() {
         pipeline.transitionTo(AppState.Error);
       }
     },
-    [pipeline, speechSynthesis],
+    [pipeline, speechSynthesis, startAvatarPolling, stopAvatarPolling],
   );
 
   // ---- Send Message ----
@@ -213,6 +326,11 @@ export default function Home() {
     async (text: string) => {
       if (!text.trim() || isProcessing) return;
       setIsProcessing(true);
+
+      // Reset avatar state for new turn
+      stopAvatarPolling();
+      setAvatarVideoUrl(undefined);
+      setAvatarStatus('idle');
 
       // Add user message
       const userMsg: Message = {
@@ -278,7 +396,7 @@ export default function Home() {
         setIsProcessing(false);
       }
     },
-    [isProcessing, messages, pipeline, processStream],
+    [isProcessing, messages, pipeline, processStream, stopAvatarPolling],
   );
 
   // ---- Toggle Listening ----
@@ -288,15 +406,18 @@ export default function Home() {
     if (speechRecognition.isListening) {
       speechRecognition.stopListening();
     } else {
-      // Cancel any ongoing speech
+      // Cancel any ongoing speech & avatar
       speechSynthesis.cancel();
+      stopAvatarPolling();
+      setAvatarVideoUrl(undefined);
+      setAvatarStatus('idle');
       // Reset accumulated transcript
       accumulatedTranscript.current = '';
       pipeline.transitionTo(AppState.Listening);
       speechRecognition.startListening();
       audioAnalyzer.start();
     }
-  }, [isProcessing, speechRecognition, speechSynthesis, pipeline, audioAnalyzer]);
+  }, [isProcessing, speechRecognition, speechSynthesis, pipeline, audioAnalyzer, stopAvatarPolling]);
 
   // ---- Keyboard Shortcut (Space) ----
   useEffect(() => {
@@ -351,6 +472,9 @@ export default function Home() {
           volume={audioAnalyzer.volume}
           frequencyData={audioAnalyzer.frequencyData}
           isSpeaking={speechSynthesis.isSpeaking}
+          avatarVideoUrl={avatarVideoUrl}
+          avatarStatus={avatarStatus}
+          onVideoEnd={handleVideoEnd}
         />
       </div>
 
