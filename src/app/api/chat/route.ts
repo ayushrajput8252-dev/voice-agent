@@ -14,10 +14,10 @@ function createSSEMessage(type: SSEEventType, data: unknown): string {
 }
 
 export async function POST(request: NextRequest) {
-  const apiKey = process.env.GEMINI_API_KEY;
+  const apiKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY;
   if (!apiKey) {
     return new Response(
-      JSON.stringify({ error: 'GEMINI_API_KEY is not configured' }),
+      JSON.stringify({ error: 'GEMINI_API_KEY or GOOGLE_API_KEY is not configured' }),
       { status: 500, headers: { 'Content-Type': 'application/json' } },
     );
   }

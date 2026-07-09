@@ -317,8 +317,13 @@ export default function Home() {
   }, [handleToggleListening]);
 
   // ---- Browser support check ----
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => {
+    setMounted(true);
+  }, []);
+
   const showBrowserWarning =
-    typeof window !== 'undefined' && !speechRecognition.isSupported;
+    mounted && !speechRecognition.isSupported;
 
   return (
     <div className="app-container">

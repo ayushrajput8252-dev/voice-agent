@@ -58,7 +58,8 @@ export async function streamGeminiResponse(
       contents,
       config: {
         systemInstruction: SYSTEM_PROMPT,
-        tools: GEMINI_TOOLS as any,
+        // @ts-expect-error: New SDK type mismatch with our custom tool schema
+        tools: GEMINI_TOOLS,
         temperature: 0.7,
         maxOutputTokens: 1024,
       },
@@ -120,11 +121,12 @@ export async function streamGeminiResponse(
       // Second call with tool results
       callbacks.onStateChange('reasoning', 'Formulating Response');
 
+      // @ts-expect-error: Follow-up contents type mismatch with SDK
       const followUpContents = [
         ...contents,
         { role: 'model', parts },
         { role: 'user', parts: functionResponseParts },
-      ] as any;
+      ];
 
       const followUpResponse = await ai.models.generateContent({
         model,

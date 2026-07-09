@@ -23,6 +23,7 @@ export function useAudioAnalyzer() {
   const analyserRef = useRef<AnalyserNode | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const animationFrameRef = useRef<number>(0);
+  const lastUpdateTimeRef = useRef<number>(0);
   const mountedRef = useRef(true);
 
   useEffect(() => {
@@ -55,11 +56,16 @@ export function useAudioAnalyzer() {
       sampledData.push(dataArray[i * step] / 255);
     }
 
-    setState({
-      volume,
-      frequencyData: sampledData,
-      isActive: true,
-    });
+    // Throttle state updates to avoid React maximum update depth errors (approx 20fps)
+    const now = Date.now();
+    if (!lastUpdateTimeRef.current || now - lastUpdateTimeRef.current > 50) {
+      lastUpdateTimeRef.current = now;
+      setState({
+        volume,
+        frequencyData: sampledData,
+        isActive: true,
+      });
+    }
 
     animationFrameRef.current = requestAnimationFrame(analyze);
   }, []);
