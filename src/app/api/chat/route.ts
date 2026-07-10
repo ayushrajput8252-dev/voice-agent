@@ -9,6 +9,7 @@ import { streamGroqResponse } from '@/lib/groq/client';
 import { validateResponse, responseValidationToLayerResult } from '@/lib/safety/response-validator';
 import { ChatRequest, SSEEventType } from '@/types';
 import { createTalkVideo, waitForVideoCompletion } from '@/lib/did/did-client';
+import { redis } from '@/lib/cache/redis';
 
 function createSSEMessage(type: SSEEventType, data: unknown): string {
   return `data: ${JSON.stringify({ type, data, timestamp: Date.now() })}\n\n`;
@@ -46,11 +47,34 @@ export async function POST(request: NextRequest) {
   const stream = new ReadableStream({
     async start(controller) {
       const send = (type: SSEEventType, data: unknown) => {
-        controller.enqueue(encoder.encode(createSSEMessage(type, data)));
+        try {
+          controller.enqueue(encoder.encode(createSSEMessage(type, data)));
+        } catch (err) {
+          console.warn('[API/Chat] Failed to enqueue (client disconnected?)', err);
+        }
       };
 
       try {
         const pipelineStartTime = Date.now();
+        const ip = request.ip || request.headers.get('x-forwarded-for') || 'anonymous';
+        
+        // ============ Step 0: Check Ban Status ============
+        try {
+          const violationsStr = await redis.get(`violations:${ip}`);
+          if (violationsStr && parseInt(violationsStr, 10) >= 3) {
+            send('state_change', { state: 'blocked', label: 'Banned' });
+            const banMsg = 'Your account has been banned due to repeated safety policy violations.';
+            send('content', { chunk: banMsg, accumulated: banMsg });
+            send('complete', {
+              fullResponse: banMsg,
+              metadata: { model: 'llama-3.3-70b-versatile', latencyMs: 0, toolsUsed: [], safety: { passed: false, layersPassed: 0, totalLayers: 5 } },
+            });
+            controller.close();
+            return;
+          }
+        } catch (e) {
+          console.warn('[Redis] Ban check failed', e);
+        }
 
         // ============ Step 1: Safety Validation ============
         send('state_change', { state: 'safety_validation', label: 'Safety Check' });
@@ -58,8 +82,20 @@ export async function POST(request: NextRequest) {
         const safetyResult = await runSafetyPipeline(message, apiKey);
 
         if (safetyResult.status === 'blocked') {
+          let count = 1;
+          try {
+            count = await redis.incr(`violations:${ip}`);
+            if (count === 1) await redis.expire(`violations:${ip}`, 86400); // 24 hours
+          } catch (e) {}
+
+          const attemptMsg = count >= 3 
+            ? 'You have reached 3 violations. Your account has been banned.' 
+            : `Warning: This is attempt ${count} out of 3. If more violations happen, your account will be banned.`;
+          
+          const fullBlockedMsg = `${BLOCKED_MESSAGE} ${attemptMsg}`;
+
           send('state_change', { state: 'blocked', label: 'Blocked' });
-          send('content', { chunk: BLOCKED_MESSAGE, accumulated: BLOCKED_MESSAGE });
+          send('content', { chunk: fullBlockedMsg, accumulated: fullBlockedMsg });
           send('metadata', {
             model: 'llama-3.3-70b-versatile',
             latencyMs: Date.now() - pipelineStartTime,
@@ -74,7 +110,7 @@ export async function POST(request: NextRequest) {
             },
           });
           send('complete', {
-            fullResponse: BLOCKED_MESSAGE,
+            fullResponse: fullBlockedMsg,
             metadata: { model: 'llama-3.3-70b-versatile', latencyMs: Date.now() - pipelineStartTime },
           });
           controller.close();
@@ -110,10 +146,22 @@ export async function POST(request: NextRequest) {
         }
 
         if (queryValidation.status === 'unsafe') {
+          let count = 1;
+          try {
+            count = await redis.incr(`violations:${ip}`);
+            if (count === 1) await redis.expire(`violations:${ip}`, 86400);
+          } catch (e) {}
+
+          const attemptMsg = count >= 3 
+            ? 'You have reached 3 violations. Your account has been banned.' 
+            : `Warning: This is attempt ${count} out of 3. If more violations happen, your account will be banned.`;
+          
+          const fullBlockedMsg = `${BLOCKED_MESSAGE} ${attemptMsg}`;
+
           send('state_change', { state: 'blocked', label: 'Blocked' });
-          send('content', { chunk: BLOCKED_MESSAGE, accumulated: BLOCKED_MESSAGE });
+          send('content', { chunk: fullBlockedMsg, accumulated: fullBlockedMsg });
           send('complete', {
-            fullResponse: BLOCKED_MESSAGE,
+            fullResponse: fullBlockedMsg,
             metadata: {
               model: 'llama-3.3-70b-versatile',
               latencyMs: Date.now() - pipelineStartTime,
@@ -246,7 +294,11 @@ export async function POST(request: NextRequest) {
         send('state_change', { state: 'error', label: 'Error' });
         send('error', { message: msg });
       } finally {
-        controller.close();
+        try {
+          controller.close();
+        } catch (err) {
+          // Ignore error if already closed
+        }
       }
     },
   });

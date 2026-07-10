@@ -1,13 +1,49 @@
 'use client';
 
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { AppState } from '@/types';
 
 interface DigiMascotProps {
   state: AppState;
+  isSpeaking?: boolean;
 }
 
-export const DigiMascot: React.FC<DigiMascotProps> = ({ state }) => {
+export const DigiMascot: React.FC<DigiMascotProps> = ({ state, isSpeaking = false }) => {
+  const [mouthOpen, setMouthOpen] = useState(false);
+  const [isBlinking, setIsBlinking] = useState(false);
+
+  // Animation loop for mouth flap and blinking when speaking
+  useEffect(() => {
+    let mouthInterval: NodeJS.Timeout;
+    let blinkTimeout: NodeJS.Timeout;
+
+    const runBlinkCycle = () => {
+      // Occasional random blink between 1s and 4s
+      const nextBlink = Math.random() * 3000 + 1000;
+      blinkTimeout = setTimeout(() => {
+        setIsBlinking(true);
+        setTimeout(() => setIsBlinking(false), 150);
+        runBlinkCycle();
+      }, nextBlink);
+    };
+
+    if (isSpeaking) {
+      // Flap mouth rapidly (talk animation)
+      mouthInterval = setInterval(() => {
+        setMouthOpen(prev => !prev);
+      }, 150);
+      runBlinkCycle();
+    } else {
+      setMouthOpen(false);
+      setIsBlinking(false);
+    }
+
+    return () => {
+      clearInterval(mouthInterval);
+      clearTimeout(blinkTimeout);
+    };
+  }, [isSpeaking]);
+
   // Determine expression based on state
   let eyes = 'happy';
   let mouth = 'smile';
@@ -46,9 +82,14 @@ export const DigiMascot: React.FC<DigiMascotProps> = ({ state }) => {
     default:
       eyes = 'happy';
       mouth = 'smile';
-      // Idle state gets a slow, cute bobbing animation
       animation = 'animate-[pulse_3s_ease-in-out_infinite]';
       break;
+  }
+
+  // Override for speaking animation
+  if (isSpeaking) {
+    mouth = mouthOpen ? 'open' : 'smile';
+    eyes = isBlinking ? 'closed' : eyes;
   }
 
   return (
@@ -125,6 +166,13 @@ const Eye = ({ type }: { type: string }) => {
     return (
       <svg width="24" height="24" viewBox="0 0 24 24" fill="none" className="text-[#2D3748]">
         <path d="M4 4L20 20M20 4L4 20" stroke="currentColor" strokeWidth="4" strokeLinecap="round" />
+      </svg>
+    );
+  }
+  if (type === 'closed') {
+    return (
+      <svg width="24" height="24" viewBox="0 0 24 24" fill="none" className="text-[#2D3748]">
+        <path d="M4 12H20" stroke="currentColor" strokeWidth="4" strokeLinecap="round" />
       </svg>
     );
   }

@@ -21,51 +21,28 @@ export async function runSafetyPipeline(
 ): Promise<SafetyPipelineResult> {
   const layers: SafetyLayerResult[] = [];
 
-  // Layer 1: Keyword Detection
-  const keywordResult = detectKeywords(input);
-  layers.push(keywordResult);
-  if (!keywordResult.passed) {
-    return {
-      status: 'blocked',
-      layers,
-      blockedAt: 'keyword_detection',
-      reason: keywordResult.reason || 'Blocked keyword detected',
-    };
-  }
+  const [keywordResult, injectionResult, jailbreakResult, geminiResult] = await Promise.all([
+    Promise.resolve(detectKeywords(input)),
+    Promise.resolve(detectPromptInjection(input)),
+    Promise.resolve(detectJailbreak(input)),
+    validateWithGemini(input, apiKey),
+  ]);
 
-  // Layer 2: Prompt Injection Detection
-  const injectionResult = detectPromptInjection(input);
-  layers.push(injectionResult);
-  if (!injectionResult.passed) {
-    return {
-      status: 'blocked',
-      layers,
-      blockedAt: 'prompt_injection',
-      reason: injectionResult.reason || 'Prompt injection detected',
-    };
-  }
+  layers.push(keywordResult, injectionResult, jailbreakResult, geminiResult);
 
-  // Layer 3: Jailbreak Detection
-  const jailbreakResult = detectJailbreak(input);
-  layers.push(jailbreakResult);
-  if (!jailbreakResult.passed) {
-    return {
-      status: 'blocked',
-      layers,
-      blockedAt: 'jailbreak_detection',
-      reason: jailbreakResult.reason || 'Jailbreak attempt detected',
-    };
-  }
+  const failedLayer = layers.find(l => !l.passed);
+  if (failedLayer) {
+    let blockedAt = 'unknown';
+    if (failedLayer === keywordResult) blockedAt = 'keyword_detection';
+    else if (failedLayer === injectionResult) blockedAt = 'prompt_injection';
+    else if (failedLayer === jailbreakResult) blockedAt = 'jailbreak_detection';
+    else if (failedLayer === geminiResult) blockedAt = 'gemini_safety';
 
-  // Layer 4: Gemini Safety Validation
-  const geminiResult = await validateWithGemini(input, apiKey);
-  layers.push(geminiResult);
-  if (!geminiResult.passed) {
     return {
       status: 'blocked',
       layers,
-      blockedAt: 'gemini_safety',
-      reason: geminiResult.reason || 'Gemini safety validation failed',
+      blockedAt,
+      reason: failedLayer.reason || 'Safety validation failed',
     };
   }
 

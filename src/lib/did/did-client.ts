@@ -5,7 +5,7 @@
 const DID_API_BASE = 'https://api.d-id.com';
 
 const DEFAULT_AVATAR_IMAGE =
-  'https://create-images-results.d-id.com/DefaultPresenters/Noelle_f/image.jpeg';
+  'https://d-id-public-bucket.s3.us-west-2.amazonaws.com/alice.jpg';
 
 // ---- Types ----
 
