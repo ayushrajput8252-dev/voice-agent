@@ -69,7 +69,7 @@ export function AvatarOrb({
             exit={{ opacity: 0, scale: 0.9, y: -20 }}
             transition={{ duration: 0.5, type: 'spring' }}
           >
-            <DigiMascot state={state} isSpeaking={isSpeaking} />
+            <DigiMascot state={state} isSpeaking={isSpeaking} volume={volume} />
           </motion.div>
         )}
       </AnimatePresence>

@@ -32,7 +32,7 @@ export async function runSafetyPipeline(
 
   const failedLayer = layers.find(l => !l.passed);
   if (failedLayer) {
-    let blockedAt = 'unknown';
+    let blockedAt: any = 'unknown';
     if (failedLayer === keywordResult) blockedAt = 'keyword_detection';
     else if (failedLayer === injectionResult) blockedAt = 'prompt_injection';
     else if (failedLayer === jailbreakResult) blockedAt = 'jailbreak_detection';

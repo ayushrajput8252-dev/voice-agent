@@ -1,17 +1,38 @@
 import Redis from 'ioredis';
 
-const REDIS_URL = process.env.REDIS_URL || 'redis://localhost:6379/0';
+const REDIS_URL = process.env.REDIS_URL;
 
-// Global instances to prevent creating multiple connections in dev
 declare global {
   var redisClient: Redis | undefined;
 }
 
-export const redis = global.redisClient || new Redis(REDIS_URL);
-
-if (process.env.NODE_ENV !== 'production') {
-  global.redisClient = redis;
+function initRedis() {
+  if (!REDIS_URL) return null;
+  if (global.redisClient) return global.redisClient;
+  
+  const client = new Redis(REDIS_URL, {
+    maxRetriesPerRequest: 1,
+    retryStrategy: () => null // Do not infinitely retry connection
+  });
+  
+  if (process.env.NODE_ENV !== 'production') {
+    global.redisClient = client;
+  }
+  return client;
 }
+
+const client = initRedis();
+
+// Safe wrapper that won't crash if Redis is unavailable
+export const redis = {
+  get: async (key: string) => client ? client.get(key) : null,
+  set: async (key: string, val: string, mode?: string, duration?: number) => {
+    if (client && mode && duration) return client.set(key, val, mode as any, duration);
+    if (client) return client.set(key, val);
+  },
+  incr: async (key: string) => client ? client.incr(key) : 1,
+  expire: async (key: string, seconds: number) => client ? client.expire(key, seconds) : 1
+};
 
 export async function getCachedOrFetch<T>(
   key: string,
