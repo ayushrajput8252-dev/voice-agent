@@ -56,7 +56,7 @@ export async function POST(request: NextRequest) {
 
       try {
         const pipelineStartTime = Date.now();
-        const ip = request.ip || request.headers.get('x-forwarded-for') || 'anonymous';
+        const ip = request.headers.get('x-forwarded-for') || 'anonymous';
         
         // ============ Step 0: Check Ban Status ============
         try {

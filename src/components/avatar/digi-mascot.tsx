@@ -6,9 +6,10 @@ import { AppState } from '@/types';
 interface DigiMascotProps {
   state: AppState;
   isSpeaking?: boolean;
+  volume?: number;
 }
 
-export const DigiMascot: React.FC<DigiMascotProps> = ({ state, isSpeaking = false }) => {
+export const DigiMascot: React.FC<DigiMascotProps> = ({ state, isSpeaking = false, volume = 0 }) => {
   const [mouthOpen, setMouthOpen] = useState(false);
   const [isBlinking, setIsBlinking] = useState(false);
 
@@ -27,7 +28,10 @@ export const DigiMascot: React.FC<DigiMascotProps> = ({ state, isSpeaking = fals
       }, nextBlink);
     };
 
-    if (isSpeaking) {
+    // Animate mouth when TTS is speaking OR when text is actively streaming (Reasoning)
+    const shouldAnimateFlap = isSpeaking || state === AppState.Reasoning;
+
+    if (shouldAnimateFlap) {
       // Flap mouth rapidly (talk animation)
       mouthInterval = setInterval(() => {
         setMouthOpen(prev => !prev);
@@ -42,7 +46,7 @@ export const DigiMascot: React.FC<DigiMascotProps> = ({ state, isSpeaking = fals
       clearInterval(mouthInterval);
       clearTimeout(blinkTimeout);
     };
-  }, [isSpeaking]);
+  }, [isSpeaking, state]);
 
   // Determine expression based on state
   let eyes = 'happy';
@@ -86,10 +90,14 @@ export const DigiMascot: React.FC<DigiMascotProps> = ({ state, isSpeaking = fals
       break;
   }
 
-  // Override for speaking animation
-  if (isSpeaking) {
+  // Override for speaking animation or user speaking
+  if (isSpeaking || state === AppState.Reasoning) {
     mouth = mouthOpen ? 'open' : 'smile';
     eyes = isBlinking ? 'closed' : eyes;
+  } else if (state === AppState.Listening && volume > 10) {
+    // React to user's microphone volume
+    mouth = 'open';
+    eyes = 'wide';
   }
 
   return (
