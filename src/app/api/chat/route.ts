@@ -11,6 +11,8 @@ import { ChatRequest, SSEEventType } from '@/types';
 import { createTalkVideo, waitForVideoCompletion } from '@/lib/did/did-client';
 import { redis } from '@/lib/cache/redis';
 
+export const dynamic = 'force-dynamic';
+
 function createSSEMessage(type: SSEEventType, data: unknown): string {
   return `data: ${JSON.stringify({ type, data, timestamp: Date.now() })}\n\n`;
 }
@@ -46,9 +48,12 @@ export async function POST(request: NextRequest) {
   const encoder = new TextEncoder();
   const stream = new ReadableStream({
     async start(controller) {
+      console.log('[API/Chat] Stream started for message:', message);
       const send = (type: SSEEventType, data: unknown) => {
         try {
-          controller.enqueue(encoder.encode(createSSEMessage(type, data)));
+          const chunk = createSSEMessage(type, data);
+          console.log('[API/Chat] Sending chunk:', type);
+          controller.enqueue(encoder.encode(chunk));
         } catch (err) {
           console.warn('[API/Chat] Failed to enqueue (client disconnected?)', err);
         }
@@ -65,10 +70,13 @@ export async function POST(request: NextRequest) {
             send('state_change', { state: 'blocked', label: 'Banned' });
             const banMsg = 'Your account has been banned due to repeated safety policy violations.';
             send('content', { chunk: banMsg, accumulated: banMsg });
+            const meta = { model: 'llama-3.3-70b-versatile', latencyMs: 0, toolsUsed: [], safety: { passed: false, layersPassed: 0, totalLayers: 5 } };
+            send('metadata', meta);
             send('complete', {
               fullResponse: banMsg,
-              metadata: { model: 'llama-3.3-70b-versatile', latencyMs: 0, toolsUsed: [], safety: { passed: false, layersPassed: 0, totalLayers: 5 } },
+              metadata: meta,
             });
+            await new Promise((resolve) => setTimeout(resolve, 50));
             controller.close();
             return;
           }
@@ -96,7 +104,7 @@ export async function POST(request: NextRequest) {
 
           send('state_change', { state: 'blocked', label: 'Blocked' });
           send('content', { chunk: fullBlockedMsg, accumulated: fullBlockedMsg });
-          send('metadata', {
+          const meta = {
             model: 'llama-3.3-70b-versatile',
             latencyMs: Date.now() - pipelineStartTime,
             toolsUsed: [],
@@ -108,11 +116,13 @@ export async function POST(request: NextRequest) {
               reason: safetyResult.reason,
               details: safetyResult.layers,
             },
-          });
+          };
+          send('metadata', meta);
           send('complete', {
             fullResponse: fullBlockedMsg,
-            metadata: { model: 'llama-3.3-70b-versatile', latencyMs: Date.now() - pipelineStartTime },
+            metadata: meta,
           });
+          await new Promise((resolve) => setTimeout(resolve, 50));
           controller.close();
           return;
         }
@@ -127,20 +137,23 @@ export async function POST(request: NextRequest) {
           send('clarification', { question, reason: queryValidation.reason });
           send('state_change', { state: 'complete', label: 'Awaiting Clarification' });
           send('content', { chunk: question, accumulated: question });
+          const meta = {
+            model: 'llama-3.3-70b-versatile',
+            latencyMs: Date.now() - pipelineStartTime,
+            toolsUsed: [],
+            safety: {
+              passed: true,
+              layersPassed: safetyResult.layers.length,
+              totalLayers: 5,
+              details: safetyResult.layers,
+            },
+          };
+          send('metadata', meta);
           send('complete', {
             fullResponse: question,
-            metadata: {
-              model: 'llama-3.3-70b-versatile',
-              latencyMs: Date.now() - pipelineStartTime,
-              toolsUsed: [],
-              safety: {
-                passed: true,
-                layersPassed: safetyResult.layers.length,
-                totalLayers: 5,
-                details: safetyResult.layers,
-              },
-            },
+            metadata: meta,
           });
+          await new Promise((resolve) => setTimeout(resolve, 50));
           controller.close();
           return;
         }
@@ -169,6 +182,7 @@ export async function POST(request: NextRequest) {
               safety: { passed: false, layersPassed: 4, totalLayers: 5, reason: queryValidation.reason, details: safetyResult.layers },
             },
           });
+          await new Promise((resolve) => setTimeout(resolve, 50));
           controller.close();
           return;
         }
@@ -220,6 +234,7 @@ export async function POST(request: NextRequest) {
             },
             responseValidation,
           });
+          await new Promise((resolve) => setTimeout(resolve, 50));
           controller.close();
           return;
         }
@@ -295,6 +310,7 @@ export async function POST(request: NextRequest) {
         send('error', { message: msg });
       } finally {
         try {
+          await new Promise((resolve) => setTimeout(resolve, 50));
           controller.close();
         } catch (err) {
           // Ignore error if already closed

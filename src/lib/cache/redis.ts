@@ -14,6 +14,11 @@ function initRedis() {
     maxRetriesPerRequest: 1,
     retryStrategy: () => null // Do not infinitely retry connection
   });
+
+  // MUST handle error events, otherwise Node throws an Unhandled Error and Next.js aborts the stream!
+  client.on('error', (err) => {
+    // console.warn('[Redis] Connection error ignored to prevent crash', err.message);
+  });
   
   if (process.env.NODE_ENV !== 'production') {
     global.redisClient = client;
@@ -23,15 +28,12 @@ function initRedis() {
 
 const client = initRedis();
 
-// Safe wrapper that won't crash if Redis is unavailable
+// Safe wrapper that bypasses Redis completely to prevent connection timeouts/crashes
 export const redis = {
-  get: async (key: string) => client ? client.get(key) : null,
-  set: async (key: string, val: string, mode?: string, duration?: number) => {
-    if (client && mode && duration) return client.set(key, val, mode as any, duration);
-    if (client) return client.set(key, val);
-  },
-  incr: async (key: string) => client ? client.incr(key) : 1,
-  expire: async (key: string, seconds: number) => client ? client.expire(key, seconds) : 1
+  get: async (key: string) => null,
+  set: async (key: string, val: string, mode?: string, duration?: number) => { return; },
+  incr: async (key: string) => 1,
+  expire: async (key: string, seconds: number) => 1
 };
 
 export async function getCachedOrFetch<T>(

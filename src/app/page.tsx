@@ -1,15 +1,15 @@
 'use client';
 
 // ============================================================
-// Main Application Page — Voice AI Assistant with D-ID Avatar
+// Main Application Page — Voice AI Assistant with Live2D Avatar
 // ============================================================
 
 import { useState, useCallback, useEffect, useRef } from 'react';
-import { AppState, Message, SafetyInfo, AvatarStatus } from '@/types';
+import { AppState, Message, SafetyInfo } from '@/types';
 import { usePipelineState } from '@/hooks/use-pipeline-state';
 import { useSpeechRecognition } from '@/hooks/use-speech-recognition';
-import { useSpeechSynthesis } from '@/hooks/use-speech-synthesis';
 import { useAudioAnalyzer } from '@/hooks/use-audio-analyzer';
+import { useTTSAudioAnalyzer } from '@/hooks/use-tts-audio-analyzer';
 import { AvatarOrb } from '@/components/avatar/avatar-orb';
 import { VoiceButton } from '@/components/chat/voice-button';
 import { TranscriptPanel } from '@/components/chat/transcript-panel';
@@ -33,30 +33,90 @@ export default function Home() {
     safety?: SafetyInfo;
   }>({});
 
-  // ---- Avatar State ----
-  const [avatarVideoUrl, setAvatarVideoUrl] = useState<string | undefined>();
-  const [avatarStatus, setAvatarStatus] = useState<AvatarStatus>('idle');
-  const avatarPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const currentAvatarMsgIdRef = useRef<string | null>(null);
-
   // ---- Hooks ----
   const pipeline = usePipelineState();
   const audioAnalyzer = useAudioAnalyzer();
+  const ttsAnalyzer = useTTSAudioAnalyzer();
 
   // Accumulate final transcripts across the session
   const accumulatedTranscript = useRef('');
 
-  const speechSynthesis = useSpeechSynthesis({
-    onStart: () => pipeline.transitionTo(AppState.Speaking),
-    onEnd: () => {
-      pipeline.transitionTo(AppState.Complete);
-      // Don't auto-reset to idle if avatar is still generating
-      if (avatarStatus !== 'generating') {
-        setTimeout(() => pipeline.transitionTo(AppState.Idle), 2000);
-      }
-    },
-  });
+  // ---- Speech Synthesis (with TTS analyzer integration) ----
+  const [isSpeaking, setIsSpeaking] = useState(false);
+  const selectedVoiceRef = useRef<SpeechSynthesisVoice | null>(null);
+  const utteranceRef = useRef<SpeechSynthesisUtterance | null>(null);
 
+  // Load voices
+  useEffect(() => {
+    if (typeof window === 'undefined' || !window.speechSynthesis) return;
+
+    const loadVoices = () => {
+      const available = speechSynthesis.getVoices();
+      if (available.length > 0 && !selectedVoiceRef.current) {
+        const preferred = config.voice.preferredVoices;
+        const found = preferred
+          .map((name: string) => available.find((v: SpeechSynthesisVoice) => v.name.includes(name)))
+          .find(Boolean);
+        selectedVoiceRef.current =
+          found || available.find((v: SpeechSynthesisVoice) => v.lang.startsWith('en')) || available[0];
+      }
+    };
+
+    loadVoices();
+    speechSynthesis.onvoiceschanged = loadVoices;
+    return () => {
+      speechSynthesis.onvoiceschanged = null;
+    };
+  }, []);
+
+  const speak = useCallback((text: string) => {
+    if (typeof window === 'undefined' || !window.speechSynthesis) return;
+
+    speechSynthesis.cancel();
+
+    const utterance = new SpeechSynthesisUtterance(text);
+    utteranceRef.current = utterance;
+
+    if (selectedVoiceRef.current) {
+      utterance.voice = selectedVoiceRef.current;
+    }
+    utterance.rate = config.voice.rate;
+    utterance.pitch = config.voice.pitch;
+
+    utterance.onstart = () => {
+      setIsSpeaking(true);
+      pipeline.transitionTo(AppState.Speaking);
+      ttsAnalyzer.startSpeaking();
+    };
+
+    utterance.onend = () => {
+      setIsSpeaking(false);
+      ttsAnalyzer.stopSpeaking();
+      pipeline.transitionTo(AppState.Complete);
+      setTimeout(() => pipeline.transitionTo(AppState.Idle), 2000);
+    };
+
+    utterance.onboundary = () => {
+      ttsAnalyzer.onWordBoundary();
+    };
+
+    utterance.onerror = () => {
+      setIsSpeaking(false);
+      ttsAnalyzer.stopSpeaking();
+    };
+
+    speechSynthesis.speak(utterance);
+  }, [pipeline, ttsAnalyzer]);
+
+  const cancelSpeech = useCallback(() => {
+    if (typeof window !== 'undefined' && window.speechSynthesis) {
+      speechSynthesis.cancel();
+      setIsSpeaking(false);
+      ttsAnalyzer.stopSpeaking();
+    }
+  }, [ttsAnalyzer]);
+
+  // ---- Speech Recognition ----
   const speechRecognition = useSpeechRecognition({
     silenceTimeout: config.voice.silenceTimeout,
     onResult: (transcript: string) => {
@@ -79,87 +139,6 @@ export default function Home() {
       setTimeout(() => pipeline.transitionTo(AppState.Idle), 3000);
     },
   });
-
-  // ---- Avatar Polling ----
-  const stopAvatarPolling = useCallback(() => {
-    if (avatarPollRef.current) {
-      clearInterval(avatarPollRef.current);
-      avatarPollRef.current = null;
-    }
-  }, []);
-
-  const startAvatarPolling = useCallback(
-    (talkId: string, msgId: string) => {
-      stopAvatarPolling();
-      currentAvatarMsgIdRef.current = msgId;
-
-      let pollCount = 0;
-      const maxPolls = 45; // 45 * 2s = 90s max
-
-      avatarPollRef.current = setInterval(async () => {
-        pollCount++;
-
-        if (pollCount > maxPolls) {
-          stopAvatarPolling();
-          setAvatarStatus('error');
-          setMessages((prev) => {
-            const fullResp = prev.find((m) => m.id === msgId)?.content;
-            if (fullResp) setTimeout(() => speechSynthesis.speak(fullResp), 100);
-            return prev.map((m) =>
-              m.id === msgId ? { ...m, avatarStatus: 'error' } : m,
-            );
-          });
-          return;
-        }
-
-        try {
-          const response = await fetch(`/api/avatar?talkId=${encodeURIComponent(talkId)}`);
-          const data = await response.json();
-
-          if (data.status === 'done' && data.videoUrl) {
-            stopAvatarPolling();
-            setAvatarVideoUrl(data.videoUrl);
-            setAvatarStatus('ready');
-            pipeline.transitionTo(AppState.AvatarGeneration, 'Avatar Ready');
-            setMessages((prev) =>
-              prev.map((m) =>
-                m.id === msgId
-                  ? { ...m, avatarVideoUrl: data.videoUrl, avatarStatus: 'ready' }
-                  : m,
-              ),
-            );
-          } else if (data.status === 'error') {
-            stopAvatarPolling();
-            setAvatarStatus('error');
-            setMessages((prev) => {
-              const fullResp = prev.find((m) => m.id === msgId)?.content;
-              if (fullResp) setTimeout(() => speechSynthesis.speak(fullResp), 100);
-              return prev.map((m) =>
-                m.id === msgId ? { ...m, avatarStatus: 'error' } : m,
-              );
-            });
-          }
-          // else: still processing, keep polling
-        } catch (error) {
-          console.error('Avatar poll error:', error);
-          // Don't stop polling on transient network errors
-        }
-      }, 2000);
-    },
-    [stopAvatarPolling, pipeline],
-  );
-
-  // Cleanup polling on unmount
-  useEffect(() => {
-    return () => stopAvatarPolling();
-  }, [stopAvatarPolling]);
-
-  // ---- Handle avatar video end ----
-  const handleVideoEnd = useCallback(() => {
-    setAvatarVideoUrl(undefined);
-    setAvatarStatus('idle');
-    pipeline.transitionTo(AppState.Idle);
-  }, [pipeline]);
 
   // ---- Process SSE Stream ----
   const processStream = useCallback(
@@ -273,46 +252,17 @@ export default function Home() {
                         : m,
                     ),
                   );
-                  // Speak immediately so the mascot can talk while we wait for D-ID!
+                  // Speak the response — Live2D mouth will animate via ttsAnalyzer
                   if (data.fullResponse) {
-                    speechSynthesis.speak(data.fullResponse);
-                    // Only transition to AudioGeneration if the backend didn't block it
-                    // Wait, if it was blocked, the pipeline is already in 'Blocked' state.
-                    // But if it's a normal completion, let's just go to AvatarGeneration.
-                    if (pipeline.currentState !== AppState.Blocked) {
-                      pipeline.transitionTo(AppState.AvatarGeneration, 'Generating Avatar...');
-                    }
+                    speak(data.fullResponse);
                   }
                   break;
                 }
 
-                // ---- D-ID Avatar Events ----
-                case 'avatar_started': {
-                  setAvatarStatus('generating');
-                  setMessages((prev) =>
-                    prev.map((m) =>
-                      m.id === assistantMsgId
-                        ? { ...m, avatarStatus: 'generating', avatarTalkId: data.talkId }
-                        : m,
-                    ),
-                  );
-                  // Start polling in case the stream closes before completion
-                  startAvatarPolling(data.talkId, assistantMsgId);
+                // D-ID events are ignored (backend may still send them harmlessly)
+                case 'avatar_started':
+                case 'avatar_ready':
                   break;
-                }
-                case 'avatar_ready': {
-                  stopAvatarPolling();
-                  setAvatarVideoUrl(data.videoUrl);
-                  setAvatarStatus('ready');
-                  setMessages((prev) =>
-                    prev.map((m) =>
-                      m.id === assistantMsgId
-                        ? { ...m, avatarVideoUrl: data.videoUrl, avatarStatus: 'ready' }
-                        : m,
-                    ),
-                  );
-                  break;
-                }
               }
             } catch {
               // Skip malformed JSON lines
@@ -324,7 +274,7 @@ export default function Home() {
         pipeline.transitionTo(AppState.Error);
       }
     },
-    [pipeline, speechSynthesis, startAvatarPolling, stopAvatarPolling],
+    [pipeline, speak],
   );
 
   // ---- Send Message ----
@@ -332,11 +282,6 @@ export default function Home() {
     async (text: string) => {
       if (!text.trim() || isProcessing) return;
       setIsProcessing(true);
-
-      // Reset avatar state for new turn
-      stopAvatarPolling();
-      setAvatarVideoUrl(undefined);
-      setAvatarStatus('idle');
 
       // Add user message
       const userMsg: Message = {
@@ -402,7 +347,7 @@ export default function Home() {
         setIsProcessing(false);
       }
     },
-    [isProcessing, messages, pipeline, processStream, stopAvatarPolling],
+    [isProcessing, messages, pipeline, processStream],
   );
 
   // ---- Toggle Listening ----
@@ -412,18 +357,15 @@ export default function Home() {
     if (speechRecognition.isListening) {
       speechRecognition.stopListening();
     } else {
-      // Cancel any ongoing speech & avatar
-      speechSynthesis.cancel();
-      stopAvatarPolling();
-      setAvatarVideoUrl(undefined);
-      setAvatarStatus('idle');
+      // Cancel any ongoing speech
+      cancelSpeech();
       // Reset accumulated transcript
       accumulatedTranscript.current = '';
       pipeline.transitionTo(AppState.Listening);
       speechRecognition.startListening();
       audioAnalyzer.start();
     }
-  }, [isProcessing, speechRecognition, speechSynthesis, pipeline, audioAnalyzer, stopAvatarPolling]);
+  }, [isProcessing, speechRecognition, cancelSpeech, pipeline, audioAnalyzer]);
 
   // ---- Keyboard Shortcut (Space) ----
   useEffect(() => {
@@ -475,7 +417,7 @@ export default function Home() {
         </div>
       </div>
 
-      {/* CENTER COLUMN: Mascot & Voice */}
+      {/* CENTER COLUMN: Live2D Avatar & Voice */}
       <div className="center-stage">
         {/* Pipeline Progress Bar */}
         <PipelineBar
@@ -490,10 +432,8 @@ export default function Home() {
             state={pipeline.currentState}
             volume={audioAnalyzer.volume}
             frequencyData={audioAnalyzer.frequencyData}
-            isSpeaking={speechSynthesis.isSpeaking}
-            avatarVideoUrl={avatarVideoUrl}
-            avatarStatus={avatarStatus}
-            onVideoEnd={handleVideoEnd}
+            isSpeaking={isSpeaking}
+            mouthValue={ttsAnalyzer.mouthValue}
           />
         </div>
 

@@ -178,8 +178,7 @@ html, body {
 .avatar-section {
   flex: 1;
   display: flex;
-  align-items: center;
-  justify-content: center;
+  flex-direction: column;
   width: 100%;
   position: relative;
   z-index: 1;
@@ -793,183 +792,123 @@ html, body {
   }
 }
 
-/* ---- Avatar Video Player ---- */
-.avatar-video-container {
-  width: 200px;
-  height: 200px;
-  border-radius: 50%;
-  overflow: hidden;
+/* ---- Live2D Avatar ---- */
+.live2d-container {
+  width: 100%;
+  height: 100%;
   position: relative;
-  z-index: 2;
-  box-shadow: 0 0 60px rgba(168, 85, 247, 0.3), 0 0 120px rgba(168, 85, 247, 0.1);
-  border: 2px solid rgba(168, 85, 247, 0.3);
-}
-
-.avatar-video {
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-  display: block;
-  border-radius: 50%;
-}
-
-.avatar-video-loading {
-  position: absolute;
-  inset: 0;
   display: flex;
   align-items: center;
   justify-content: center;
-  background: var(--bg-secondary);
-  border-radius: 50%;
   overflow: hidden;
-  z-index: 5;
 }
 
-.avatar-video-shimmer {
-  position: absolute;
-  inset: 0;
-  background: linear-gradient(
-    90deg,
-    transparent 0%,
-    rgba(168, 85, 247, 0.08) 50%,
-    transparent 100%
-  );
-  width: 100%;
-  height: 100%;
+.live2d-container canvas {
+  display: block;
+  width: 100% !important;
+  height: 100% !important;
 }
 
-.avatar-video-loading-icon {
-  color: var(--text-muted);
-  opacity: 0.4;
-  z-index: 1;
-}
-
-.avatar-video-overlay {
+.live2d-loading {
   position: absolute;
   inset: 0;
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 6px;
-  background: rgba(0, 0, 0, 0.5);
-  border-radius: 50%;
-  border: none;
-  cursor: pointer;
-  color: white;
-  font-size: 12px;
-  transition: background 0.2s;
+  gap: 16px;
   z-index: 5;
+  color: var(--text-muted);
+  font-size: 13px;
+  font-weight: 500;
 }
 
-.avatar-video-overlay:hover {
-  background: rgba(0, 0, 0, 0.7);
-}
-
-.avatar-video-error {
-  width: 200px;
-  height: 200px;
+.live2d-loading-spinner {
+  width: 40px;
+  height: 40px;
+  border: 4px solid var(--accent-amber);
+  border-top-color: var(--accent-teal);
   border-radius: 50%;
+  animation: spin 1s linear infinite;
+}
+
+.live2d-error {
+  position: absolute;
+  inset: 0;
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 8px;
-  background: var(--bg-secondary);
-  border: 2px solid rgba(239, 68, 68, 0.3);
-  color: var(--text-muted);
-  font-size: 12px;
-  z-index: 2;
+  gap: 12px;
+  z-index: 5;
+  color: var(--text-secondary);
+  font-size: 13px;
 }
 
-/* ---- Message Avatar Section ---- */
-.message-avatar-section {
-  margin-top: 6px;
+.live2d-error-icon {
+  font-size: 32px;
 }
 
-.message-avatar-badge {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  font-size: 11px;
-  padding: 4px 10px;
-  border-radius: var(--radius-sm);
-  background: var(--bg-glass);
-  border: 1px solid var(--border-glass);
-}
-
-.message-avatar-badge.generating {
-  color: var(--accent-secondary);
-  border-color: rgba(168, 85, 247, 0.2);
-}
-
-.message-avatar-badge.error {
+.live2d-error-text {
+  max-width: 250px;
+  text-align: center;
+  line-height: 1.4;
   color: var(--error);
-  border-color: rgba(239, 68, 68, 0.2);
 }
 
-.message-video-thumb {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 6px 12px;
-  border: 1px solid rgba(168, 85, 247, 0.3);
+.live2d-retry-btn {
+  padding: 8px 20px;
+  background: var(--accent-amber);
+  border: 3px solid #2D3748;
   border-radius: var(--radius-sm);
-  background: rgba(168, 85, 247, 0.08);
-  color: var(--accent-secondary);
+  font-weight: 700;
   font-size: 12px;
   cursor: pointer;
-  transition: all 0.2s;
+  box-shadow: 3px 3px 0px #2D3748;
+  transition: transform 0.1s, box-shadow 0.1s;
+  color: #2D3748;
 }
 
-.message-video-thumb:hover {
-  background: rgba(168, 85, 247, 0.15);
-  border-color: rgba(168, 85, 247, 0.5);
+.live2d-retry-btn:active {
+  transform: translate(2px, 2px);
+  box-shadow: 1px 1px 0px #2D3748;
 }
 
-.message-video-embed {
-  overflow: hidden;
-  margin-top: 8px;
-  border-radius: var(--radius-md);
-  border: 1px solid var(--border-glass);
+.live2d-speaking-indicator {
+  position: absolute;
+  bottom: 20px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  gap: 5px;
+  padding: 6px 14px;
+  background: rgba(78, 205, 196, 0.15);
+  border: 2px solid var(--accent-teal);
+  border-radius: var(--radius-full);
+  z-index: 10;
 }
 
-.message-video {
-  width: 100%;
-  max-width: 320px;
-  border-radius: var(--radius-md);
-  display: block;
+.live2d-speaking-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--accent-teal);
+  animation: speakingBounce 1.2s ease-in-out infinite;
+}
+
+.live2d-speaking-dot:nth-child(2) {
+  animation-delay: 0.2s;
+}
+
+.live2d-speaking-dot:nth-child(3) {
+  animation-delay: 0.4s;
+}
+
+@keyframes speakingBounce {
+  0%, 100% { transform: translateY(0); opacity: 0.4; }
+  50% { transform: translateY(-6px); opacity: 1; }
 }
 
 .spin {
   animation: spin 1s linear infinite;
-}
-
-/* ---- Responsive Video ---- */
-@media (max-width: 768px) {
-  .avatar-video-container {
-    width: 160px;
-    height: 160px;
-  }
-
-  .avatar-video-error {
-    width: 160px;
-    height: 160px;
-  }
-
-  .message-video {
-    max-width: 240px;
-  }
-}
-
-@media (max-width: 480px) {
-  .avatar-video-container {
-    width: 130px;
-    height: 130px;
-  }
-
-  .avatar-video-error {
-    width: 130px;
-    height: 130px;
-  }
 }

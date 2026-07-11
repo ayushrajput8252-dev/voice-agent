@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Live2D Test</title>
+    <!-- Cubism Core -->
+    <script src="/live2d/live2dcubismcore.min.js"></script>
+    <!-- PixiJS -->
+    <script src="https://cdn.jsdelivr.net/npm/pixi.js@7.x/dist/pixi.min.js"></script>
+    <!-- pixi-live2d-display -->
+    <script src="https://cdn.jsdelivr.net/npm/pixi-live2d-display@0.4.0/dist/cubism4.min.js"></script>
+</head>
+<body>
+    <canvas id="canvas"></canvas>
+    <script>
+        const app = new PIXI.Application({
+            view: document.getElementById('canvas'),
+            autoStart: true,
+            resizeTo: window,
+            backgroundColor: 0x333333
+        });
+
+        PIXI.live2d.Live2DModel.from('/live2d/kei/kei_vowels_pro.model3.json')
+            .then(model => {
+                app.stage.addChild(model);
+                
+                const scaleX = innerWidth / model.width;
+                const scaleY = innerHeight / model.height;
+                model.scale.set(Math.min(scaleX, scaleY));
+                
+                console.log("Model loaded successfully!");
+            })
+            .catch(err => {
+                console.error("Failed to load model:", err);
+            });
+    </script>
+</body>
+</html>

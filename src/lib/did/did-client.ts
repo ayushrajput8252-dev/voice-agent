@@ -5,7 +5,7 @@
 const DID_API_BASE = 'https://api.d-id.com';
 
 const DEFAULT_AVATAR_IMAGE =
-  'https://d-id-public-bucket.s3.us-west-2.amazonaws.com/alice.jpg';
+  'https://upload.wikimedia.org/wikipedia/commons/4/48/Outdoors-man-portrait_%28cropped%29.jpg';
 
 // ---- Types ----
 
